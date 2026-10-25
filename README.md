@@ -51,6 +51,11 @@ Set the handoff trigger from inside Pi. Two modes:
 - The threshold persists to `~/.pi/agent/handoff.json` (overridable via
   `PI_HANDOFF_CONFIG_PATH`) and reloads on session start.
 - Default: **80%** of the context window.
+- Leave headroom above Pi's `keepRecentTokens` (default 20000, configurable
+  globally in `~/.pi/agent/settings.json`, per project in `<cwd>/.pi/settings.json`,
+  and per model via `compaction.modelOverrides`): a threshold at or below it
+  makes the handoff refire right after each compaction. `/tidy-threshold`
+  rejects such values with an error and does not save them.
 
 ## Development
 
