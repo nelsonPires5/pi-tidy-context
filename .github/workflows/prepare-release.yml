@@ -1,0 +1,142 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Semver bump kind.
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      base:
+        description: Branch to branch from and target — dev for normal releases, main for hotfixes.
+        required: false
+        type: choice
+        default: dev
+        options:
+          - dev
+          - main
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    name: prepare release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The release branch is cut from the selected base: dev for normal
+          # releases, main only for hotfixes.
+          ref: ${{ inputs.base }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Compute target version
+        id: plan
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          current="$(node -p "require('./package.json').version")"
+          target="$(CURRENT="$current" node -e '
+            const [major, minor, patch] = process.env.CURRENT.split(".").map(Number);
+            const bump = process.env.BUMP;
+            if (bump === "major") console.log(`${major + 1}.0.0`);
+            else if (bump === "minor") console.log(`${major}.${minor + 1}.0`);
+            else console.log(`${major}.${minor}.${patch + 1}`);
+          ')"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "branch=release/v$target" >> "$GITHUB_OUTPUT"
+          echo "Bump: $current -> $target"
+
+      - name: Apply version and changelog
+        env:
+          TARGET: ${{ steps.plan.outputs.target }}
+        run: |
+          set -euo pipefail
+          TARGET="$TARGET" DATE="$(date -u +%F)" node -e '
+            const fs = require("fs");
+            const target = process.env.TARGET;
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            pkg.version = target;
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+            let changelog = fs.readFileSync("CHANGELOG.md", "utf8");
+            if (!changelog.includes("## [Unreleased]")) {
+              throw new Error("CHANGELOG.md has no ## [Unreleased] section");
+            }
+            changelog = changelog.replace(
+              "## [Unreleased]",
+              `## [Unreleased]\n\n## [${target}] - ${process.env.DATE}`
+            );
+            fs.writeFileSync("CHANGELOG.md", changelog);
+          '
+          grep -q "\"version\": \"$TARGET\"" package.json
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run tests
+        run: bun test
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      - name: Commit and push release branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ steps.plan.outputs.target }}
+          BRANCH: ${{ steps.plan.outputs.branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain)" ]; then
+            git add package.json CHANGELOG.md
+            git commit -m "chore(release): v$TARGET"
+          else
+            echo "no file changes to commit"
+          fi
+          remote_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          remote_sha="$(git ls-remote --heads "$remote_url" "$BRANCH" | awk '{print $1}')"
+          if [ -n "$remote_sha" ]; then
+            git push --force-with-lease="refs/heads/$BRANCH:$remote_sha" "$remote_url" HEAD:"$BRANCH"
+          else
+            git push "$remote_url" HEAD:"$BRANCH"
+          fi
+
+      - name: Create or update PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ steps.plan.outputs.target }}
+          BRANCH: ${{ steps.plan.outputs.branch }}
+        run: |
+          set -euo pipefail
+          title="chore(release): v$TARGET"
+          body="$(printf '%s\n' \
+            "Prepare release branch for v$TARGET (base \`${{ inputs.base }}\`)." \
+            "" \
+            "- package.json bumped to $TARGET; CHANGELOG.md release section added" \
+            "- a maintainer merges this PR into \`${{ inputs.base }}\` with a merge commit" \
+            "- base dev: then merge the Promote workflow's dev -> main PR; Release tags the green commit" \
+            "- base main (hotfix): Release tags the green main commit directly")"
+          pr_json="$(gh pr list --head "$BRANCH" --state open --json number,url)"
+          count="$(printf '%s' "$pr_json" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).length')"
+          if [ "$count" -gt 0 ]; then
+            pr_number="$(printf '%s' "$pr_json" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8"))[0].number')"
+            gh pr edit "$pr_number" --title "$title" --body "$body" --base "${{ inputs.base }}"
+          else
+            gh pr create --head "$BRANCH" --base "${{ inputs.base }}" --title "$title" --body "$body"
+          fi

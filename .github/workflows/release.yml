@@ -1,0 +1,131 @@
+name: Release
+
+# Publishes a release from a green push to `main` whose package.json version
+# changed versus the commit's first parent: creates the annotated tag vX.Y.Z
+# at that exact commit and a GitHub Release with the CHANGELOG notes.
+# Any other `main` commit is a no-op. Never widen this to `dev`.
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+
+concurrency:
+  group: release-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: release from green main CI
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Inspect version state
+        id: state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          # A root commit has no first parent and cannot be a release merge.
+          if ! git rev-parse --verify --quiet "$HEAD_SHA^1^{commit}" >/dev/null; then
+            echo "No first parent; release is a no-op."
+            echo "release_needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          head_version="$(git show "$HEAD_SHA:package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")"
+          parent_version="$(git show "$HEAD_SHA^1:package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")"
+          echo "package.json version: $parent_version -> $head_version"
+          if [ "$head_version" = "$parent_version" ]; then
+            echo "No version bump; release is a no-op."
+            echo "release_needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="$head_version"
+          tag="v$version"
+          # Prefer the peeled ({}) SHA so annotated tags compare by commit.
+          remote_tag_sha="$(git ls-remote --tags "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/$tag" "refs/tags/$tag^{}" | awk -v tag="$tag" '
+            $2 == "refs/tags/" tag "^{}" { peeled = $1 }
+            $2 == "refs/tags/" tag { direct = $1 }
+            END { if (peeled != "") print peeled; else if (direct != "") print direct }
+          ')"
+          if [ -n "$remote_tag_sha" ] && [ "$remote_tag_sha" != "$HEAD_SHA" ]; then
+            echo "::error::tag $tag points to $remote_tag_sha, not $HEAD_SHA" >&2
+            exit 1
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; no-op."
+            echo "release_needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "release_needed=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ -z "$remote_tag_sha" ]; then
+            echo "tag_needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_needed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract release notes
+        if: steps.state.outputs.release_needed == 'true'
+        id: notes
+        env:
+          VERSION: ${{ steps.state.outputs.version }}
+        run: |
+          set -euo pipefail
+          out=release-notes.md
+          awk -v v="$VERSION" '
+            /^## / {
+              if (found) exit
+              if (index($0, "[" v "]") > 0) { found = 1; print; next }
+            }
+            found { print }
+          ' CHANGELOG.md > "$out"
+          if [ ! -s "$out" ]; then
+            echo "_See the auto-generated notes below._" > "$out"
+          fi
+          echo "file=$out" >> "$GITHUB_OUTPUT"
+
+      - name: Create annotated tag
+        if: steps.state.outputs.release_needed == 'true' && steps.state.outputs.tag_needed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.state.outputs.tag }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" "$HEAD_SHA" -m "$TAG"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$TAG"
+
+      - name: Create GitHub Release
+        if: steps.state.outputs.release_needed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.state.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes-file "${{ steps.notes.outputs.file }}" \
+            --verify-tag

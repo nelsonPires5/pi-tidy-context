@@ -1,0 +1,89 @@
+name: Promote
+
+# The action-owned half of a normal release: when CI completes green on a push
+# to `dev` whose package.json version is ahead of `main`, this workflow opens
+# (or updates) the `dev -> main` promotion PR. A maintainer merges it with a
+# merge commit: GitHub never creates workflow runs for pushes made with
+# GITHUB_TOKEN, so an automated merge would silently skip CI and Release could
+# never tag it. This workflow never creates or moves tags.
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - dev
+
+concurrency:
+  group: promote-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote:
+    name: promote dev to main
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'dev'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Decide promotion
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          remote_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch "$remote_url" main
+          main_sha="$(git rev-parse FETCH_HEAD)"
+          if git merge-base --is-ancestor "$HEAD_SHA" "$main_sha"; then
+            echo "dev tip is already on main; promotion is a no-op."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          dev_version="$(git show "$HEAD_SHA:package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")"
+          main_version="$(git show "$main_sha:package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")"
+          echo "package.json version: main=$main_version dev=$dev_version"
+          if [ "$dev_version" = "$main_version" ]; then
+            echo "dev carries no pending bump over main; promotion is a no-op."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "needed=true" >> "$GITHUB_OUTPUT"
+          echo "version=$dev_version" >> "$GITHUB_OUTPUT"
+          echo "Promoting v$dev_version from dev to main."
+
+      - name: Create or update promotion PR
+        if: steps.decide.outputs.needed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          set -euo pipefail
+          title="chore(release): promote v$VERSION to main"
+          body="$(printf '%s\n' \
+            "Automatic promotion from \`dev\` after green \`dev\` CI (version v$VERSION)." \
+            "" \
+            "- opened by the Promote workflow; a maintainer merges it with a merge commit" \
+            "- the Release workflow tags this merge commit once \`main\` CI is green")"
+          pr_json="$(gh pr list --head dev --base main --state open --json number,url)"
+          count="$(printf '%s' "$pr_json" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).length')"
+          if [ "$count" -gt 0 ]; then
+            pr_number="$(printf '%s' "$pr_json" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8"))[0].number')"
+            gh pr edit "$pr_number" --title "$title" --body "$body"
+          else
+            gh pr create --head dev --base main --title "$title" --body "$body"
+          fi
