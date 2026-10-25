@@ -310,7 +310,7 @@ export default function (pi: ExtensionAPI) {
 		threshold = await loadThreshold();
 	});
 
-	pi.registerCommand("handoff-threshold", {
+	pi.registerCommand("tidy-threshold", {
 		description:
 			"Set the handoff trigger: a percent (1-100) or a token count with a 'k' suffix (e.g. 150k)",
 		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
@@ -332,7 +332,7 @@ export default function (pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const parsed = parseThreshold(args ?? "");
 			if (parsed === null) {
-				ctx.ui.notify("Invalid threshold. Usage: /handoff-threshold <1-100 | e.g. 150k>", "error");
+				ctx.ui.notify("Invalid threshold. Usage: /tidy-threshold <1-100 | e.g. 150k>", "error");
 				return;
 			}
 			threshold = parsed;
