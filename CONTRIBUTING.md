@@ -79,3 +79,21 @@ herdr-board, simplified for this small TS repo):
    bump in `package.json` versus the merge's first parent, and creates the
    annotated tag `vX.Y.Z` plus the GitHub Release at that exact commit.
 4. After promotion, `main` is merged back into `dev` so `dev` keeps the history.
+
+### Bot PR workflow approval (do not skip)
+
+PRs opened by `github-actions[bot]` (Prepare, Promote) start with their CI run
+in `action_required`: GitHub holds bot workflows until a maintainer approves
+them. Without approval no checks ever report, and the branch ruleset (required
+`test` check) blocks the merge. After each bot PR appears, approve its pending
+runs, then wait for green checks, then merge:
+
+```bash
+R=nelsonPires5/pi-tidy-context
+for id in $(gh run list --branch <pr-head-branch> --json databaseId,conclusion \
+  --jq '.[] | select(.conclusion=="action_required") | .databaseId' --repo $R); do
+  gh api repos/$R/actions/runs/$id/approve -X POST --repo $R
+done
+gh pr checks <pr-number> --watch --fail-fast --repo $R
+gh pr merge <pr-number> --merge --repo $R
+```
