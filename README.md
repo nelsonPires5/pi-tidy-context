@@ -21,7 +21,7 @@ decisions, open questions, and next steps so a fresh session can pick up cleanly
 No npm publish needed — install directly from git (use a version tag):
 
 ```bash
-pi install git:github.com/nelsonPires5/pi-tidy-context@v0.1.0
+pi install git:github.com/nelsonPires5/pi-tidy-context@v0.1.1
 ```
 
 Replace `@v0.1.0` with the release you want (`@vX.Y.Z`). See the
@@ -34,8 +34,8 @@ git:github.com/nelsonPires5/pi-tidy-context` removes it.
 Set the handoff trigger from inside Pi. Two modes:
 
 ```text
-/handoff-threshold 75    # percent mode: trigger at 75% of the context window
-/handoff-threshold 150k   # tokens mode: trigger at ~150,000 tokens
+/tidy-threshold 75    # percent mode: trigger at 75% of the context window
+/tidy-threshold 150k   # tokens mode: trigger at ~150,000 tokens
 ```
 
 - Percent mode accepts a bare integer `1`–`100`; tokens mode accepts `<n>k`
