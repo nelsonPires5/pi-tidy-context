@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed the command `/handoff-threshold` to `/tidy-threshold` (old name removed).
+
 ## [0.1.1] - 2026-10-25
 
 ### Added

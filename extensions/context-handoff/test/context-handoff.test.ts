@@ -282,9 +282,9 @@ describe("context handoff", () => {
 		expect(content).toContain("2026-03-04");
 	});
 
-	test("registers the /handoff-threshold command", () => {
+	test("registers the /tidy-threshold command", () => {
 		const setupResult = setup();
-		expect(setupResult.commands.has("handoff-threshold")).toBe(true);
+		expect(setupResult.commands.has("tidy-threshold")).toBe(true);
 	});
 
 	test("percent command updates the live threshold and turn_end respects it", async () => {
@@ -295,7 +295,7 @@ describe("context handoff", () => {
 		const notifications: { message: string; level: string }[] = [];
 		const context = setupResult.createContext(true, notifications);
 		const turnEnd = setupResult.handlers.get("turn_end")!;
-		const command = setupResult.commands.get("handoff-threshold")!;
+		const command = setupResult.commands.get("tidy-threshold")!;
 
 		await command.handler("90", context);
 		expect(notifications.some((n) => n.message.includes("90%"))).toBe(true);
@@ -322,7 +322,7 @@ describe("context handoff", () => {
 		const notifications: { message: string; level: string }[] = [];
 		const context = setupResult.createContext(true, notifications);
 		const turnEnd = setupResult.handlers.get("turn_end")!;
-		const command = setupResult.commands.get("handoff-threshold")!;
+		const command = setupResult.commands.get("tidy-threshold")!;
 
 		await command.handler("150k", context);
 		expect(notifications.some((n) => n.message.includes("150k"))).toBe(true);
@@ -347,7 +347,7 @@ describe("context handoff", () => {
 		const setupResult = setup();
 		const context = setupResult.createContext();
 		const turnEnd = setupResult.handlers.get("turn_end")!;
-		const command = setupResult.commands.get("handoff-threshold")!;
+		const command = setupResult.commands.get("tidy-threshold")!;
 
 		await command.handler("150k", context);
 
@@ -365,7 +365,7 @@ describe("context handoff", () => {
 		const notifications: { message: string; level: string }[] = [];
 		const context = setupResult.createContext(true, notifications);
 		const turnEnd = setupResult.handlers.get("turn_end")!;
-		const command = setupResult.commands.get("handoff-threshold")!;
+		const command = setupResult.commands.get("tidy-threshold")!;
 
 		await command.handler("not-a-number", context);
 		expect(notifications.some((n) => n.level === "error" && n.message.includes("Invalid"))).toBe(true);
@@ -431,7 +431,7 @@ describe("context handoff", () => {
 		process.env.PI_HANDOFF_CONFIG_PATH = configPath;
 
 		const setupResult = setup();
-		const command = setupResult.commands.get("handoff-threshold")!;
+		const command = setupResult.commands.get("tidy-threshold")!;
 		const getCompletions = command.getArgumentCompletions!;
 
 		// Default (percent 80): current value shown, parseable, labelled "current".
