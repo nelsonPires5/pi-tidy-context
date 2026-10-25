@@ -1,6 +1,6 @@
 {
   "name": "pi-tidy-context",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Pi package that watches context usage and triggers a tidy handoff before the window runs out.",
   "keywords": [
