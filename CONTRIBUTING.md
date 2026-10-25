@@ -19,7 +19,10 @@ bunx tsc --noEmit     # typecheck (same commands CI runs)
 This is a [Pi package](https://pi.dev/packages): `package.json` carries the
 `pi-package` keyword and Pi discovers extensions, skills, prompts, and themes
 from the conventional directories (`extensions/`, `skills/`, `prompts/`,
-`themes/`). It is installed straight from git — no npm publish step:
+`themes/`). It is published to npm automatically on every release (see
+"Release policy" below); `pi install pi-tidy-context` installs the latest
+published version, or pin one with `pi install pi-tidy-context@X.Y.Z`. Git
+installs still work too:
 
 ```bash
 pi install git:github.com/nelsonPires5/pi-tidy-context@vX.Y.Z
@@ -77,8 +80,30 @@ herdr-board, simplified for this small TS repo):
    merge (an automated merge would silently skip CI, so a human merges).
 3. The **Release** workflow consumes the green `main` CI run, sees the version
    bump in `package.json` versus the merge's first parent, and creates the
-   annotated tag `vX.Y.Z` plus the GitHub Release at that exact commit.
+   annotated tag `vX.Y.Z` plus the GitHub Release at that exact commit — then
+   publishes that exact commit to npm (`npm publish --provenance --access
+   public`). The publish is idempotent: if `name@version` is already on npm
+   the step skips instead of failing, so reruns are safe.
 4. After promotion, `main` is merged back into `dev` so `dev` keeps the history.
+
+### npm publishing (Trusted Publisher, one-time setup)
+
+No npm token lives in the repo. Publishing uses npm Trusted Publisher
+(GitHub OIDC) bound to this repo + the `release.yml` workflow, so no
+`NPM_TOKEN` secret is needed and provenance attestations are attached
+automatically. The owner does this once on npmjs.com:
+
+1. Claim the `pi-tidy-context` name with a first manual publish from a release
+   tag (e.g. `git checkout vX.Y.Z && npm publish --access public` after
+   `npm login`).
+2. On npmjs.com, open the `pi-tidy-context` package → Settings → Trusted
+   Publisher → add GitHub Actions with owner `nelsonPires5`, repository
+   `pi-tidy-context`, workflow file name `release.yml`.
+
+From then on every Release publishes fully automatically. If a publish step
+fails after the GitHub Release already exists, rerunning the Release workflow
+retries just the missing npm publish (the npm-view check skips versions that
+are already published).
 
 ### Bot PR workflow approval (do not skip)
 

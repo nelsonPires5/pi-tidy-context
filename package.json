@@ -6,6 +6,18 @@
   "keywords": [
     "pi-package"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "extensions/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nelsonPires5/pi-tidy-context.git"
+  },
   "scripts": {
     "test": "bun test"
   },

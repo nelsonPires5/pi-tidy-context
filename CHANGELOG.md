@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- Automatic npm publishing: the Release workflow now publishes the exact
+  tagged commit to npm (`npm publish` with provenance via Trusted Publisher
+  OIDC), so `pi install pi-tidy-context` works alongside git installs.
+
 ## [0.1.2] - 2026-10-25
 
 ### Changed

@@ -2,7 +2,9 @@ name: Release
 
 # Publishes a release from a green push to `main` whose package.json version
 # changed versus the commit's first parent: creates the annotated tag vX.Y.Z
-# at that exact commit and a GitHub Release with the CHANGELOG notes.
+# at that exact commit, a GitHub Release with the CHANGELOG notes, and then
+# publishes that exact commit to npm (`npm publish` with provenance) via the
+# npm Trusted Publisher OIDC binding for this repo + workflow — no secrets.
 # Any other `main` commit is a no-op. Never widen this to `dev`.
 
 on:
@@ -29,6 +31,12 @@ jobs:
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
+    outputs:
+      release_needed: ${{ steps.state.outputs.release_needed }}
+      # version/tag are set whenever a bump is detected, even when the GitHub
+      # Release already exists, so the publish job can still backfill npm.
+      version: ${{ steps.state.outputs.version }}
+      tag: ${{ steps.state.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,6 +81,8 @@ jobs:
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $tag already exists; no-op."
             echo "release_needed=false" >> "$GITHUB_OUTPUT"
+            echo "version=$head_version" >> "$GITHUB_OUTPUT"
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "release_needed=true" >> "$GITHUB_OUTPUT"
@@ -129,3 +139,73 @@ jobs:
             --title "$TAG" \
             --notes-file "${{ steps.notes.outputs.file }}" \
             --verify-tag
+
+  publish-npm:
+    name: publish to npm
+    # Runs after the tag + GitHub Release above, publishing the exact tagged
+    # commit. Auth is npm Trusted Publisher (GitHub OIDC): no NODE_AUTH_TOKEN
+    # or long-lived secret — the one-time setup is binding this repo + this
+    # workflow file as a trusted publisher on npmjs.com (see CONTRIBUTING).
+    # `version` is set on any detected bump, so a rerun still publishes a
+    # version missing from npm; the npm-view check below keeps that idempotent.
+    needs: [release]
+    if: needs.release.outputs.version != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          registry-url: https://registry.npmjs.org
+
+      - name: Update npm for Trusted Publisher OIDC support
+        run: npm install -g npm@latest
+
+      - name: Verify tagged commit and version
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          VERSION: ${{ needs.release.outputs.version }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          pkg_version="$(node -p "require('./package.json').version")"
+          if [ "$pkg_version" != "$VERSION" ]; then
+            echo "::error::package.json version $pkg_version != release version $VERSION" >&2
+            exit 1
+          fi
+          tag_commit="$(git rev-list -n 1 "$TAG")"
+          if [ "$tag_commit" != "$HEAD_SHA" ]; then
+            echo "::error::tag $TAG points to $tag_commit, not $HEAD_SHA" >&2
+            exit 1
+          fi
+          echo "Publishing $TAG from exact tagged commit $HEAD_SHA."
+
+      - name: Check if version is already on npm
+        id: published
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          name="$(node -p "require('./package.json').name")"
+          if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+            echo "$name@$VERSION is already on npm; skipping publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$name@$VERSION is not on npm; publishing."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to npm with provenance
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          npm pack --dry-run
+          npm publish --provenance --access public
