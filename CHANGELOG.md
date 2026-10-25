@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-25
+
 ### Added
 
 - Initial package scaffold (Pi package manifest, docs, CI/release workflows).
