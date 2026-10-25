@@ -18,16 +18,22 @@ decisions, open questions, and next steps so a fresh session can pick up cleanly
 
 ## Install
 
-No npm publish needed — install directly from git (use a version tag):
+From npm (recommended):
 
 ```bash
-pi install git:github.com/nelsonPires5/pi-tidy-context@v0.1.1
+pi install pi-tidy-context
 ```
 
-Replace `@v0.1.0` with the release you want (`@vX.Y.Z`). See the
-[releases page](https://github.com/nelsonPires5/pi-tidy-context/releases) for
-available versions. `pi list` shows the installed package; `pi remove
-git:github.com/nelsonPires5/pi-tidy-context` removes it.
+Pin a version with `pi install pi-tidy-context@X.Y.Z`. See the
+[releases page](https://github.com/nelsonPires5/pi-tidy-context/releases) (or
+[npm](https://www.npmjs.com/package/pi-tidy-context)) for available versions.
+`pi list` shows the installed package; `pi remove pi-tidy-context` removes it.
+
+Alternatively, install straight from git (no npm publish needed):
+
+```bash
+pi install git:github.com/nelsonPires5/pi-tidy-context@vX.Y.Z
+```
 
 ## Usage
 
